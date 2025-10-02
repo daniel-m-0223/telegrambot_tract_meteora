@@ -6,7 +6,7 @@ dotenv.config();
 export const config: BotConfig = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
   telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
-  solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://pyth-network.rpcpool.com/6a1b2b5a676f51788083f73826f4',
   heliusApiKey: process.env.HELIUS_API_KEY || '',
   maxWatchlistSize: parseInt(process.env.MAX_WATCHLIST_SIZE || '5'),
   alertCooldownMinutes: parseInt(process.env.ALERT_COOLDOWN_MINUTES || '5'),

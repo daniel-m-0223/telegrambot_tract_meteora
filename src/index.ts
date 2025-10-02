@@ -1,3 +1,7 @@
+import * as anchor from '@coral-xyz/anchor';
+import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import  { IDL, LbClmm } from './dlmm/idl';
+
 import { config, validateConfig } from './config';
 import { WatchlistService } from './services/WatchlistService';
 import { SolanaService } from './services/SolanaService';
@@ -13,12 +17,14 @@ async function main() {
 
     // Initialize services
     const watchlistService = new WatchlistService(config.maxWatchlistSize);
-    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey);
+    
     const telegramService = new TelegramService(
       config.telegramBotToken,
       config.telegramChatId,
       watchlistService
     );
+
+    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, telegramService);
     const liquidityMonitor = new LiquidityMonitor(
       solanaService,
       telegramService,
@@ -30,26 +36,39 @@ async function main() {
     const app = express();
     app.use(express.json());
 
-    app.post('/webhook', async (req, res) => {
-      try {
-        console.log('Webhook received:', req.body);
-        await liquidityMonitor.handleWebhookData(req.body);
-        res.status(200).send('OK');
-      } catch (error) {
-        console.error('Webhook error:', error);
-        res.status(500).send('Error processing webhook');
-      }
+    // Initialize RPC, Anchor Provider, and Anchor Client
+    const connection = new Connection('https://mainnet.helius-rpc.com/?api-key=a15f3c20-05f4-43ed-8ff9-92ecc5ca0c6c');
+    const provider = new anchor.AnchorProvider(connection, {} as any, anchor.AnchorProvider.defaultOptions());
+    const program = new anchor.Program(IDL,new PublicKey('LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo'), provider);
+
+    const subscriptionId = connection.onLogs(
+      program.programId,
+      (logInfo) => {
+        const { logs, signature } = logInfo;
+        logs.forEach((log) => {
+          // Try to decode any event using the program IDL
+          try {
+            const event = program.coder.events.decode(log);
+            if (event) {
+              console.log('Event name:', event.name);
+              console.log('Event data:', event.data);
+              console.log('Tx signature:', signature);
+            }
+          } catch (err) {
+            // Ignore logs that are not events
+          }
+        });
+      },
+      'confirmed'
+    );
+
+    const listener = program.addEventListener('Swap', (event, slot) => {
+      console.log('Event received:', event);
+      console.log('Slot:', slot);
     });
 
-    // Health check endpoint
-    app.get('/health', (req, res) => {
-      res.json({
-        status: 'healthy',
-        monitoring: liquidityMonitor.getMonitoringStatus(),
-        watchlistSize: watchlistService.getWatchlist().length
-      });
-    });
-
+    console.log("app listener------------------------", listener);
+   
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
       console.log(`Webhook server running on port ${PORT}`);

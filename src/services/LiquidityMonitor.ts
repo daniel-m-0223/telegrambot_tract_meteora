@@ -33,8 +33,8 @@ export class LiquidityMonitor {
 
     // Subscribe to program logs for Raydium and Meteora
     const programIds = [
-      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM
-      'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C', // Raydium CPMM
+      // '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM
+      // 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C', // Raydium CPMM
       'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo'  // Meteora DLMM
     ];
 

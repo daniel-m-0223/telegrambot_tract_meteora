@@ -15,6 +15,19 @@ export interface LiquidityAlert {
   timestamp: Date;
 }
 
+export interface AddLiquidityAlert {
+  tokenA: string;
+  tokenB: string;
+  mintA: string;
+  mintB: string;
+  dex: string;
+  pair: string | undefined;
+  pool: string | undefined;
+  liquidity: string;
+  price: string;
+  tx: string;
+}
+
 export interface PoolInfo {
   address: string;
   tokenA: string;

@@ -1,10 +1,23 @@
 import { Connection, PublicKey } from '@solana/web3.js';
+import DLMM from '@meteora-ag/dlmm';
+import { TelegramService } from './TelegramService';
+import { RpcAccount} from '@metaplex-foundation/umi';
 import axios from 'axios';
+import bs58 from "bs58";
+import BN from "bn.js";
+import { Metadata, deserializeMetadata } from "@metaplex-foundation/mpl-token-metadata";
+import { 
+    METEORA_DLMM_PROGRAM,
+    ADD_LIQUIDITY_BY_START,
+    REMOVE_LIQUIDITY_BY_START,
+    METADATA_PROGRAM_ID
+} from "../constant";
 import { PoolInfo, LiquidityAlert } from '../types';
 
 export class SolanaService {
   private connection: Connection;
   private heliusApiKey: string;
+  private telegramService: TelegramService;
 
   // Raydium AMM Program IDs
   private readonly RAYDIUM_AMM_PROGRAM = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8';
@@ -13,9 +26,10 @@ export class SolanaService {
   // Meteora DLMM Program ID
   private readonly METEORA_DLMM_PROGRAM = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
 
-  constructor(rpcUrl: string, heliusApiKey: string) {
+  constructor(rpcUrl: string, heliusApiKey: string, telegramService: TelegramService) {
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.heliusApiKey = heliusApiKey;
+    this.telegramService = telegramService;
   }
 
   async getAccountInfo(address: string): Promise<any> {
@@ -120,6 +134,19 @@ export class SolanaService {
           },
           'confirmed'
         );
+        this.connection.onLogs(
+          publicKey,
+          async (logInfo) => {
+            const { logs, signature } = logInfo;
+            if (logs.some((l) => l.includes("AddLiquidity"))) {
+              await this.decodeTx(signature);
+            }
+            if (logs.some((l) => l.includes("RemoveLiquidity"))) {
+              await this.decodeTx(signature);
+            }
+          },
+          "confirmed"
+        )
       }
 
       console.log('Subscribed to program logs for:', programIds);
@@ -127,6 +154,123 @@ export class SolanaService {
       console.error('Error subscribing to program logs:', error);
     }
   }
+
+  async decodeTx(sig: string): Promise<void> {
+    const tx = await this.connection.getParsedTransaction(sig, {
+      maxSupportedTransactionVersion: 0,
+    });
+    if(tx?.transaction?.message?.instructions) {
+        tx?.transaction?.message?.instructions?.forEach(async(ix: any, i: number) => {
+            if(typeof ix.data === 'string') {
+                const base58Bytes = bs58.decode(ix.data);
+                const hexBytes = Buffer.from(base58Bytes).toString('hex');
+                const dataHead = hexBytes.slice(0, 16);
+                
+                if(ix.programId.toBase58() === METEORA_DLMM_PROGRAM && dataHead === ADD_LIQUIDITY_BY_START) {
+                    console.log("Add liquidity index is-----------------------------------------", i)
+                    const hexAmountX = hexBytes.slice(16, 32);
+                    const bufX = Buffer.from(hexAmountX, 'hex');
+                    const amountX = bufX.readBigUInt64LE();
+
+                    const hexAmountY = hexBytes.slice(32, 48);
+                    const bufY = Buffer.from(hexAmountY, 'hex');
+                    const amountY = bufY.readBigUInt64LE();
+
+                    console.log(`amountX: ${amountX} \n amountY: ${amountY}`)
+
+                    // Get the instructions of the token when add liquidity
+                    const innerInstructions = tx?.meta?.innerInstructions?.find((it: any) => it.index === i);
+                    // Find the first and second token transfer instructions (usually index 0 and 1)
+                    const parsedInstructions = innerInstructions?.instructions?.filter(
+                        (ix: any) => "parsed" in ix
+                      ) ?? [];
+                    const instructionsX = parsedInstructions?.[0];
+                    const instructionsY = parsedInstructions?.[1];
+
+                    // Get the mint address of the token when add liquidity
+                    const mintAddressX = (instructionsX && 'parsed' in instructionsX && instructionsX.parsed?.info?.mint) ? instructionsX.parsed.info.mint : undefined;
+                    const mintAddressY = (instructionsY && 'parsed' in instructionsY && instructionsY.parsed?.info?.mint) ? instructionsY.parsed.info.mint : undefined;
+
+                    const decimalX = (instructionsX && 'parsed' in instructionsX && instructionsX.parsed?.info?.tokenAmount?.decimals) ? instructionsX.parsed.info.tokenAmount.decimals : undefined;
+                    const decimalY = (instructionsY && 'parsed' in instructionsY && instructionsY.parsed?.info?.tokenAmount?.decimals) ? instructionsY.parsed.info.tokenAmount.decimals : undefined;
+
+                    console.log("mintAddressX-", mintAddressX);
+                    console.log("mintAddressY-", mintAddressY);
+
+                    const tokenInfoX = await this.getTokenInfo(this.connection, mintAddressX);
+                    const tokenInfoY = await this.getTokenInfo(this.connection, mintAddressY);
+                    let poolAddress;
+                    if(tx?.transaction?.message?.instructions?.[i] && typeof tx?.transaction?.message?.instructions?.[i] === 'object' && 'accounts' in tx?.transaction?.message?.instructions?.[i]) {
+                        poolAddress = tx?.transaction?.message?.instructions?.[i].accounts?.[1];                        
+                    }
+                    console.log("poolAddress", poolAddress);
+
+                    // Get quote with pool address
+                    try {
+                        const dlmm_pool = await DLMM.create(this.connection, poolAddress as PublicKey);
+                        
+                        const swapAmount = new BN(10 ** decimalX);
+                        const swapYtoX = true;
+                        const binArrays = await dlmm_pool.getBinArrayForSwap(swapYtoX);
+
+                        const swapQuote = await dlmm_pool.swapQuote(
+                            swapAmount,
+                            swapYtoX,
+                            new BN(1),
+                            binArrays
+                        )
+
+                        // console.log("swapQuote------------------", swapAmount,swapQuote);
+                        console.log(
+                            "consumedInAmount: %s, outAmount: %s",
+                            (swapQuote.consumedInAmount.toNumber() / 10 ** decimalX).toString(),
+                            (swapQuote.outAmount.toNumber() / 10 ** decimalY).toString()
+                        );
+
+                        console.log("Token A", tokenInfoX.name, tokenInfoX.symbol);
+                        console.log("Token B", tokenInfoY.name, tokenInfoY.symbol);
+                        console.log("poolAddress", poolAddress?.toBase58().toString());
+
+                        const signature_link = `https://solscan.io/tx/${sig}`;
+                        
+                        this.telegramService.addLiquidityAlert({
+                            tokenA: tokenInfoX.name,
+                            tokenB: tokenInfoY.name,
+                            mintA: mintAddressX,
+                            mintB: mintAddressY,
+                            dex: 'Meteora DLMM',
+                            pair: ` ${tokenInfoX.symbol} | ${tokenInfoY.symbol}`,
+                            pool: poolAddress?.toBase58().toString(),
+                            liquidity: `${amountX !== 0n ? Number(amountX) / (10 ** decimalX) : 0} ${tokenInfoX.symbol} + ${amountY !== 0n ? Number(amountY) / (10 ** decimalY) : 0} ${tokenInfoY.symbol}`,
+                            price: (swapQuote.outAmount.toNumber() / 10 ** decimalX).toString(),
+                            tx: sig
+                        });
+                    } catch (error) {
+                        console.warn(`Failed to get swap quote for pool ${poolAddress?.toBase58()}:`, error);
+                        
+                        // Still send the liquidity alert without price information
+                        this.telegramService.addLiquidityAlert({
+                            tokenA: tokenInfoX.name,
+                            tokenB: tokenInfoY.name,
+                            mintA: mintAddressX,
+                            mintB: mintAddressY,
+                            dex: 'Meteora DLMM',
+                            pair: ` ${tokenInfoX.symbol} | ${tokenInfoY.symbol}`,
+                            pool: poolAddress?.toBase58().toString(),
+                            liquidity: `${amountX !== 0n ? Number(amountX) / (10 ** decimalX) : 0} ${tokenInfoX.symbol} + ${amountY !== 0n ? Number(amountY) / (10 ** decimalY) : 0} ${tokenInfoY.symbol}`,
+                            price: 'N/A (insufficient liquidity for quote)',
+                            tx: sig
+                        });
+                    }
+                }
+                if(ix.programId.toBase58() === METEORA_DLMM_PROGRAM && dataHead === REMOVE_LIQUIDITY_BY_START) {
+                    console.log("Remove liquidity index is-----------------------------------------", i)
+                }
+            }        
+        });
+    }
+  }
+
 
   async setupHeliusWebhook(webhookUrl: string): Promise<boolean> {
     try {
@@ -166,5 +310,54 @@ export class SolanaService {
       console.error('Error parsing transaction logs:', error);
       return null;
     }
+  }
+
+  getMetadataPDA(mint: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [
+          Buffer.from("metadata"),
+          new PublicKey(METADATA_PROGRAM_ID).toBuffer(),
+          mint.toBuffer(),
+      ],
+      new PublicKey(METADATA_PROGRAM_ID)
+    )[0];
+  }
+    
+  async getTokenInfo(
+      connection: Connection,
+      mintAddress: string
+  ) {
+      try {
+          const mint = new PublicKey(mintAddress);
+          const metadataPda = this.getMetadataPDA(mint);
+        
+          const accountInfo = await connection.getAccountInfo(metadataPda);
+          if (!accountInfo) {
+              console.warn(`No metadata account found for token: ${mintAddress}`);
+              return {
+                  name: 'Unknown Token',
+                  symbol: 'UNK',
+                  uri: '',
+                  mintAddress: mintAddress
+              };
+          }
+          
+          const metaData = deserializeMetadata(accountInfo as unknown as RpcAccount);
+          
+          return {
+              name: metaData.name || 'Unknown Token',
+              symbol: metaData.symbol || 'UNK',
+              uri: metaData.uri || '',
+              mintAddress: mintAddress
+          };
+      } catch (error) {
+          console.error(`Error getting token info for ${mintAddress}:`, error);
+          return {
+              name: 'Unknown Token',
+              symbol: 'UNK',
+              uri: '',
+              mintAddress: mintAddress
+          };
+      }
   }
 }

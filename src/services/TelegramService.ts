@@ -1,5 +1,5 @@
 import { Telegraf, Context } from 'telegraf';
-import { WatchlistItem, LiquidityAlert } from '../types';
+import { WatchlistItem, LiquidityAlert, AddLiquidityAlert } from '../types';
 import { WatchlistService } from './WatchlistService';
 
 export class TelegramService {
@@ -130,6 +130,37 @@ export class TelegramService {
       });
 
       console.log(`Liquidity alert sent for ${alert.contractAddress}`);
+    } catch (error) {
+      console.error('Error sending liquidity alert:', error);
+    }
+  }
+
+  async addLiquidityAlert(alert: AddLiquidityAlert): Promise<void> {
+    try {
+      const message = `
+        🚨 **Liquidity Alert!**
+
+        **TokenA:** \`${alert.tokenA}\`
+        **TokenB:** \`${alert.tokenB}\`
+        **MintA:** \`${alert.mintA}\`
+        **MintB:** \`${alert.mintB}\`
+        **DEX:** ${alert.dex.toUpperCase()}
+        **Pool:** \`${alert.pool}\`
+        **Pair:** \`${alert.pair}\`
+        **Liquidity:** \`${alert.liquidity}\`
+        **Price:** \`${alert.price}\`
+        **Tx:** \`${alert.tx}\`
+
+
+        🔗 [View on Solscan](https://solscan.io/tx/${alert.tx})
+      `;
+
+      await this.bot.telegram.sendMessage(this.chatId, message, { 
+        parse_mode: 'Markdown',
+        link_preview_options: { is_disabled: true }
+      });
+
+      console.log(`Liquidity alert sent for ${alert.tx}`);
     } catch (error) {
       console.error('Error sending liquidity alert:', error);
     }
