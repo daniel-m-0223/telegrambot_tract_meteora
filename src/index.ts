@@ -18,19 +18,24 @@ async function main() {
     // Initialize services
     const watchlistService = new WatchlistService(config.maxWatchlistSize);
     
-    const telegramService = new TelegramService(
-      config.telegramBotToken,
-      config.telegramChatId,
-      watchlistService
-    );
-
-    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, telegramService);
+    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, null);
     const liquidityMonitor = new LiquidityMonitor(
       solanaService,
-      telegramService,
+      null, // Will be set after TelegramService is created
       watchlistService,
       config.alertCooldownMinutes
     );
+
+    const telegramService = new TelegramService(
+      config.telegramBotToken,
+      config.telegramChatId,
+      watchlistService,
+      liquidityMonitor
+    );
+
+    // Set the telegram service in solana service and liquidity monitor
+    solanaService.setTelegramService(telegramService);
+    liquidityMonitor.setTelegramService(telegramService);
 
     // Set up webhook endpoint for Helius
     const app = express();
@@ -77,9 +82,6 @@ async function main() {
     // Launch Telegram bot
     telegramService.launch();
 
-    // Start liquidity monitoring
-    await liquidityMonitor.startMonitoring();
-
     // Set up Helius webhook if API key is provided
     if (config.heliusApiKey) {
       const webhookUrl = process.env.WEBHOOK_URL || `https://your-domain.com/webhook`;
@@ -88,10 +90,10 @@ async function main() {
 
     console.log('🚀 Solana Liquidity Bot is running!');
     console.log('📱 Telegram bot is active');
-    console.log('🔍 Monitoring for liquidity events...');
+    console.log('⏸️  Monitoring is paused - use /start command in Telegram to begin monitoring');
 
     // Send startup notification
-    await telegramService.sendMessage('🤖 Bot started successfully! Monitoring for liquidity events...');
+    await telegramService.sendMessage('🤖 Bot started successfully! Use /start command to begin monitoring for liquidity events.');
 
   } catch (error) {
     console.error('Failed to start bot:', error);

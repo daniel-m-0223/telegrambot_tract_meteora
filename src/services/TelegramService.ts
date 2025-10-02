@@ -1,16 +1,20 @@
 import { Telegraf, Context } from 'telegraf';
 import { WatchlistItem, LiquidityAlert, AddLiquidityAlert } from '../types';
 import { WatchlistService } from './WatchlistService';
+import { LiquidityMonitor } from './LiquidityMonitor';
 
 export class TelegramService {
   private bot: Telegraf;
   private watchlistService: WatchlistService;
+  private liquidityMonitor: LiquidityMonitor;
   private chatId: string;
+  private isMonitoring: boolean = false;
 
-  constructor(botToken: string, chatId: string, watchlistService: WatchlistService) {
+  constructor(botToken: string, chatId: string, watchlistService: WatchlistService, liquidityMonitor: LiquidityMonitor) {
     this.bot = new Telegraf(botToken);
     this.chatId = chatId;
     this.watchlistService = watchlistService;
+    this.liquidityMonitor = liquidityMonitor;
     this.setupCommands();
   }
 
@@ -64,11 +68,48 @@ export class TelegramService {
       await ctx.reply(message, { parse_mode: 'Markdown' });
     });
 
+    // /stop command
+    this.bot.command('stop', async (ctx: Context) => {
+      if (!this.isMonitoring) {
+        await ctx.reply('🤖 Bot is not currently monitoring. Use /start to begin monitoring.');
+        return;
+      }
+
+      try {
+        this.liquidityMonitor.stopMonitoring();
+        this.isMonitoring = false;
+        await ctx.reply('🛑 Monitoring stopped. Use /start to resume monitoring.');
+      } catch (error) {
+        console.error('Error stopping monitoring:', error);
+        await ctx.reply('❌ Failed to stop monitoring. Please try again.');
+      }
+    });
+
+    // /status command
+    this.bot.command('status', async (ctx: Context) => {
+      const monitoringStatus = this.isMonitoring ? '🟢 Active' : '🔴 Inactive';
+      const watchlistCount = this.watchlistService.getWatchlist().length;
+      
+      const statusMessage = `
+        📊 **Bot Status:**
+
+        **Monitoring:** ${monitoringStatus}
+        **Watchlist:** ${watchlistCount} contracts
+
+        ${this.isMonitoring ? 'Bot is actively monitoring for liquidity events.' : 'Bot is not monitoring. Use /start to begin.'}
+      `;
+      
+      await ctx.reply(statusMessage, { parse_mode: 'Markdown' });
+    });
+
     // /help command
     this.bot.command('help', async (ctx: Context) => {
       const helpMessage = `
         🤖 **Solana Liquidity Bot Commands:**
 
+        /start - Start monitoring for liquidity events
+        /stop - Stop monitoring
+        /status - Check bot status
         /watch <contract_address> - Add a contract to watchlist
         /unwatch <contract_address> - Remove a contract from watchlist
         /list - Show current watchlist
@@ -89,20 +130,33 @@ export class TelegramService {
 
     // Start command
     this.bot.command('start', async (ctx: Context) => {
-      const welcomeMessage = `
-        🚀 **Welcome to Solana Liquidity Bot!**
+      if (this.isMonitoring) {
+        await ctx.reply('🤖 Bot is already running and monitoring for liquidity events!');
+        return;
+      }
 
-        I monitor Solana contract addresses and alert you when liquidity is added to pools on Raydium and Meteora.
+      try {
+        await this.liquidityMonitor.startMonitoring();
+        this.isMonitoring = true;
+        
+        const welcomeMessage = `
+          🚀 **Welcome to Solana Liquidity Bot!**
 
-        **Quick Start:**
-        1. Use /watch contract_address to add a contract
-        2. I'll monitor for pool creation and liquidity events
-        3. Get instant alerts when your contracts get liquidity
+          I'm now monitoring Solana contract addresses and will alert you when liquidity is added to pools on Raydium and Meteora.
 
-        Use /help for more commands.
-      `;
-      
-      await ctx.reply(welcomeMessage, { parse_mode: 'Markdown' });
+          **Quick Start:**
+          1. Use /watch contract_address to add a contract
+          2. I'll monitor for pool creation and liquidity events
+          3. Get instant alerts when your contracts get liquidity
+
+          Use /help for more commands.
+        `;
+        
+        await ctx.reply(welcomeMessage, { parse_mode: 'Markdown' });
+      } catch (error) {
+        console.error('Error starting monitoring:', error);
+        await ctx.reply('❌ Failed to start monitoring. Please try again.');
+      }
     });
   }
 
@@ -172,6 +226,10 @@ export class TelegramService {
     } catch (error) {
       console.error('Error sending message:', error);
     }
+  }
+
+  getMonitoringStatus(): boolean {
+    return this.isMonitoring;
   }
 
   launch(): void {

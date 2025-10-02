@@ -17,7 +17,7 @@ import { PoolInfo, LiquidityAlert } from '../types';
 export class SolanaService {
   private connection: Connection;
   private heliusApiKey: string;
-  private telegramService: TelegramService;
+  private telegramService: TelegramService | null;
 
   // Raydium AMM Program IDs
   private readonly RAYDIUM_AMM_PROGRAM = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8';
@@ -26,9 +26,13 @@ export class SolanaService {
   // Meteora DLMM Program ID
   private readonly METEORA_DLMM_PROGRAM = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
 
-  constructor(rpcUrl: string, heliusApiKey: string, telegramService: TelegramService) {
+  constructor(rpcUrl: string, heliusApiKey: string, telegramService: TelegramService | null) {
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.heliusApiKey = heliusApiKey;
+    this.telegramService = telegramService;
+  }
+
+  setTelegramService(telegramService: TelegramService): void {
     this.telegramService = telegramService;
   }
 
@@ -233,34 +237,38 @@ export class SolanaService {
 
                         const signature_link = `https://solscan.io/tx/${sig}`;
                         
-                        this.telegramService.addLiquidityAlert({
-                            tokenA: tokenInfoX.name,
-                            tokenB: tokenInfoY.name,
-                            mintA: mintAddressX,
-                            mintB: mintAddressY,
-                            dex: 'Meteora DLMM',
-                            pair: ` ${tokenInfoX.symbol} | ${tokenInfoY.symbol}`,
-                            pool: poolAddress?.toBase58().toString(),
-                            liquidity: `${amountX !== 0n ? Number(amountX) / (10 ** decimalX) : 0} ${tokenInfoX.symbol} + ${amountY !== 0n ? Number(amountY) / (10 ** decimalY) : 0} ${tokenInfoY.symbol}`,
-                            price: (swapQuote.outAmount.toNumber() / 10 ** decimalX).toString(),
-                            tx: sig
-                        });
+                        if (this.telegramService) {
+                            this.telegramService.addLiquidityAlert({
+                                tokenA: tokenInfoX.name,
+                                tokenB: tokenInfoY.name,
+                                mintA: mintAddressX,
+                                mintB: mintAddressY,
+                                dex: 'Meteora DLMM',
+                                pair: ` ${tokenInfoX.symbol} | ${tokenInfoY.symbol}`,
+                                pool: poolAddress?.toBase58().toString(),
+                                liquidity: `${amountX !== 0n ? Number(amountX) / (10 ** decimalX) : 0} ${tokenInfoX.symbol} + ${amountY !== 0n ? Number(amountY) / (10 ** decimalY) : 0} ${tokenInfoY.symbol}`,
+                                price: (swapQuote.outAmount.toNumber() / 10 ** decimalX).toString(),
+                                tx: sig
+                            });
+                        }
                     } catch (error) {
                         console.warn(`Failed to get swap quote for pool ${poolAddress?.toBase58()}:`, error);
                         
                         // Still send the liquidity alert without price information
-                        this.telegramService.addLiquidityAlert({
-                            tokenA: tokenInfoX.name,
-                            tokenB: tokenInfoY.name,
-                            mintA: mintAddressX,
-                            mintB: mintAddressY,
-                            dex: 'Meteora DLMM',
-                            pair: ` ${tokenInfoX.symbol} | ${tokenInfoY.symbol}`,
-                            pool: poolAddress?.toBase58().toString(),
-                            liquidity: `${amountX !== 0n ? Number(amountX) / (10 ** decimalX) : 0} ${tokenInfoX.symbol} + ${amountY !== 0n ? Number(amountY) / (10 ** decimalY) : 0} ${tokenInfoY.symbol}`,
-                            price: 'N/A (insufficient liquidity for quote)',
-                            tx: sig
-                        });
+                        if (this.telegramService) {
+                            this.telegramService.addLiquidityAlert({
+                                tokenA: tokenInfoX.name,
+                                tokenB: tokenInfoY.name,
+                                mintA: mintAddressX,
+                                mintB: mintAddressY,
+                                dex: 'Meteora DLMM',
+                                pair: ` ${tokenInfoX.symbol} | ${tokenInfoY.symbol}`,
+                                pool: poolAddress?.toBase58().toString(),
+                                liquidity: `${amountX !== 0n ? Number(amountX) / (10 ** decimalX) : 0} ${tokenInfoX.symbol} + ${amountY !== 0n ? Number(amountY) / (10 ** decimalY) : 0} ${tokenInfoY.symbol}`,
+                                price: 'N/A (insufficient liquidity for quote)',
+                                tx: sig
+                            });
+                        }
                     }
                 }
                 if(ix.programId.toBase58() === METEORA_DLMM_PROGRAM && dataHead === REMOVE_LIQUIDITY_BY_START) {

@@ -5,14 +5,14 @@ import { LiquidityAlert } from '../types';
 
 export class LiquidityMonitor {
   private solanaService: SolanaService;
-  private telegramService: TelegramService;
+  private telegramService: TelegramService | null;
   private watchlistService: WatchlistService;
   private alertCooldownMinutes: number;
   private isMonitoring: boolean = false;
 
   constructor(
     solanaService: SolanaService,
-    telegramService: TelegramService,
+    telegramService: TelegramService | null,
     watchlistService: WatchlistService,
     alertCooldownMinutes: number = 5
   ) {
@@ -20,6 +20,10 @@ export class LiquidityMonitor {
     this.telegramService = telegramService;
     this.watchlistService = watchlistService;
     this.alertCooldownMinutes = alertCooldownMinutes;
+  }
+
+  setTelegramService(telegramService: TelegramService): void {
+    this.telegramService = telegramService;
   }
 
   async startMonitoring(): Promise<void> {
@@ -66,7 +70,9 @@ export class LiquidityMonitor {
       }
 
       // Send the alert
-      await this.telegramService.sendLiquidityAlert(alert);
+      if (this.telegramService) {
+        await this.telegramService.sendLiquidityAlert(alert);
+      }
       
       // Update last alert time
       this.watchlistService.updateLastAlert(alert.contractAddress);
@@ -116,7 +122,9 @@ export class LiquidityMonitor {
 
           // Check cooldown
           if (this.watchlistService.canSendAlert(contractAddress, this.alertCooldownMinutes)) {
-            await this.telegramService.sendLiquidityAlert(alert);
+            if (this.telegramService) {
+              await this.telegramService.sendLiquidityAlert(alert);
+            }
             this.watchlistService.updateLastAlert(contractAddress);
           }
         }
