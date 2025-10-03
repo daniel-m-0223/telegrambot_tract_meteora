@@ -9,6 +9,10 @@ import { TelegramService } from './services/TelegramService';
 import { LiquidityMonitor } from './services/LiquidityMonitor';
 import express from 'express';
 
+// Global variable to store services for graceful shutdown
+let telegramService: TelegramService;
+let solanaService: SolanaService;
+
 async function main() {
   try {
     // Validate configuration
@@ -18,7 +22,7 @@ async function main() {
     // Initialize services
     const watchlistService = new WatchlistService(config.maxWatchlistSize);
     
-    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, null, watchlistService);
+    solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, null, watchlistService);
     const liquidityMonitor = new LiquidityMonitor(
       solanaService,
       null, // Will be set after TelegramService is created
@@ -26,7 +30,7 @@ async function main() {
       config.alertCooldownMinutes
     );
 
-    const telegramService = new TelegramService(
+    telegramService = new TelegramService(
       config.telegramBotToken,
       config.telegramChatId,
       watchlistService,
@@ -71,6 +75,29 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
+});
+
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  
+  try {
+    // Stop the Telegram bot
+    if (telegramService) {
+      await telegramService.stop();
+    }
+    
+    // Stop any other services if needed
+    if (solanaService) {
+      // Add any cleanup for SolanaService if needed
+      console.log('Solana service stopped');
+    }
+    
+    console.log('✅ Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    process.exit(1);
+  }
 });
 
 // Start the application

@@ -6,6 +6,7 @@ import { RpcAccount} from '@metaplex-foundation/umi';
 import axios from 'axios';
 import bs58 from "bs58";
 import BN from "bn.js";
+import  { getTokenMetadata} from "@solana/spl-token";
 import { Metadata, deserializeMetadata } from "@metaplex-foundation/mpl-token-metadata";
 import { 
     METEORA_DLMM_PROGRAM,
@@ -347,13 +348,13 @@ export class SolanaService {
       try {
           const mint = new PublicKey(mintAddress);
           const metadataPda = this.getMetadataPDA(mint);
-        
+
           const accountInfo = await connection.getAccountInfo(metadataPda);
           if (!accountInfo) {
-              console.warn(`No metadata account found for token: ${mintAddress}`);
+              const metaData = await getTokenMetadata(connection, new PublicKey(mintAddress));
               return {
-                  name: 'Unknown Token',
-                  symbol: 'UNK',
+                  name: metaData?.name || 'Unknown Token',
+                  symbol: metaData?.symbol || 'UNK',
                   uri: '',
                   mintAddress: mintAddress
               };

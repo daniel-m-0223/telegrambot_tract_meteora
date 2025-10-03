@@ -235,4 +235,15 @@ export class TelegramService {
     process.once('SIGINT', () => this.bot.stop('SIGINT'));
     process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
   }
+
+  async stop(): Promise<void> {
+    try {
+      console.log('Stopping Telegram bot...');
+      await this.bot.stop('SIGINT');
+      console.log('Telegram bot stopped successfully');
+    } catch (error) {
+      console.error('Error stopping Telegram bot:', error);
+      throw error;
+    }
+  }
 }
