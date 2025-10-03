@@ -18,7 +18,7 @@ async function main() {
     // Initialize services
     const watchlistService = new WatchlistService(config.maxWatchlistSize);
     
-    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, null);
+    const solanaService = new SolanaService(config.solanaRpcUrl, config.heliusApiKey, null, watchlistService);
     const liquidityMonitor = new LiquidityMonitor(
       solanaService,
       null, // Will be set after TelegramService is created
@@ -41,39 +41,6 @@ async function main() {
     const app = express();
     app.use(express.json());
 
-    // Initialize RPC, Anchor Provider, and Anchor Client
-    const connection = new Connection('https://mainnet.helius-rpc.com/?api-key=a15f3c20-05f4-43ed-8ff9-92ecc5ca0c6c');
-    const provider = new anchor.AnchorProvider(connection, {} as any, anchor.AnchorProvider.defaultOptions());
-    const program = new anchor.Program(IDL,new PublicKey('LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo'), provider);
-
-    const subscriptionId = connection.onLogs(
-      program.programId,
-      (logInfo) => {
-        const { logs, signature } = logInfo;
-        logs.forEach((log) => {
-          // Try to decode any event using the program IDL
-          try {
-            const event = program.coder.events.decode(log);
-            if (event) {
-              console.log('Event name:', event.name);
-              console.log('Event data:', event.data);
-              console.log('Tx signature:', signature);
-            }
-          } catch (err) {
-            // Ignore logs that are not events
-          }
-        });
-      },
-      'confirmed'
-    );
-
-    const listener = program.addEventListener('Swap', (event, slot) => {
-      console.log('Event received:', event);
-      console.log('Slot:', slot);
-    });
-
-    console.log("app listener------------------------", listener);
-   
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
       console.log(`Webhook server running on port ${PORT}`);
@@ -81,12 +48,6 @@ async function main() {
 
     // Launch Telegram bot
     telegramService.launch();
-
-    // Set up Helius webhook if API key is provided
-    if (config.heliusApiKey) {
-      const webhookUrl = process.env.WEBHOOK_URL || `https://your-domain.com/webhook`;
-      await solanaService.setupHeliusWebhook(webhookUrl);
-    }
 
     console.log('🚀 Solana Liquidity Bot is running!');
     console.log('📱 Telegram bot is active');

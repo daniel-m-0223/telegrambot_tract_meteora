@@ -144,11 +144,6 @@ export class TelegramService {
 
           I'm now monitoring Solana contract addresses and will alert you when liquidity is added to pools on Raydium and Meteora.
 
-          **Quick Start:**
-          1. Use /watch contract_address to add a contract
-          2. I'll monitor for pool creation and liquidity events
-          3. Get instant alerts when your contracts get liquidity
-
           Use /help for more commands.
         `;
         
@@ -183,7 +178,7 @@ export class TelegramService {
         link_preview_options: { is_disabled: true }
       });
 
-      console.log(`Liquidity alert sent for ${alert.contractAddress}`);
+      console.log(`Liquidity with sth alert sent for ${alert.contractAddress}`);
     } catch (error) {
       console.error('Error sending liquidity alert:', error);
     }

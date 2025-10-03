@@ -1,6 +1,7 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import DLMM from '@meteora-ag/dlmm';
 import { TelegramService } from './TelegramService';
+import { WatchlistService } from './WatchlistService';
 import { RpcAccount} from '@metaplex-foundation/umi';
 import axios from 'axios';
 import bs58 from "bs58";
@@ -18,6 +19,7 @@ export class SolanaService {
   private connection: Connection;
   private heliusApiKey: string;
   private telegramService: TelegramService | null;
+  private watchlistService: WatchlistService | null;
 
   // Raydium AMM Program IDs
   private readonly RAYDIUM_AMM_PROGRAM = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8';
@@ -26,14 +28,19 @@ export class SolanaService {
   // Meteora DLMM Program ID
   private readonly METEORA_DLMM_PROGRAM = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
 
-  constructor(rpcUrl: string, heliusApiKey: string, telegramService: TelegramService | null) {
+  constructor(rpcUrl: string, heliusApiKey: string, telegramService: TelegramService | null, watchlistService: WatchlistService | null = null) {
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.heliusApiKey = heliusApiKey;
     this.telegramService = telegramService;
+    this.watchlistService = watchlistService;
   }
 
   setTelegramService(telegramService: TelegramService): void {
     this.telegramService = telegramService;
+  }
+
+  setWatchlistService(watchlistService: WatchlistService): void {
+    this.watchlistService = watchlistService;
   }
 
   async getAccountInfo(address: string): Promise<any> {
@@ -179,9 +186,6 @@ export class SolanaService {
                     const hexAmountY = hexBytes.slice(32, 48);
                     const bufY = Buffer.from(hexAmountY, 'hex');
                     const amountY = bufY.readBigUInt64LE();
-
-                    console.log(`amountX: ${amountX} \n amountY: ${amountY}`)
-
                     // Get the instructions of the token when add liquidity
                     const innerInstructions = tx?.meta?.innerInstructions?.find((it: any) => it.index === i);
                     // Find the first and second token transfer instructions (usually index 0 and 1)
@@ -198,8 +202,16 @@ export class SolanaService {
                     const decimalX = (instructionsX && 'parsed' in instructionsX && instructionsX.parsed?.info?.tokenAmount?.decimals) ? instructionsX.parsed.info.tokenAmount.decimals : undefined;
                     const decimalY = (instructionsY && 'parsed' in instructionsY && instructionsY.parsed?.info?.tokenAmount?.decimals) ? instructionsY.parsed.info.tokenAmount.decimals : undefined;
 
-                    console.log("mintAddressX-", mintAddressX);
-                    console.log("mintAddressY-", mintAddressY);
+
+                    // Check if any of the mint addresses are in the watchlist
+                    if (this.watchlistService) {
+                        const mintAddresses = [mintAddressX, mintAddressY].filter(Boolean);
+                        if (!this.watchlistService.hasWatchedMints(mintAddresses)) {
+                            console.log("No watched mints found in transaction, skipping alert");
+                            return;
+                        }
+                        console.log("Found watched mints in transaction:", this.watchlistService.getWatchedMints(mintAddresses));
+                    }
 
                     const tokenInfoX = await this.getTokenInfo(this.connection, mintAddressX);
                     const tokenInfoY = await this.getTokenInfo(this.connection, mintAddressY);
@@ -230,10 +242,6 @@ export class SolanaService {
                             (swapQuote.consumedInAmount.toNumber() / 10 ** decimalX).toString(),
                             (swapQuote.outAmount.toNumber() / 10 ** decimalY).toString()
                         );
-
-                        console.log("Token A", tokenInfoX.name, tokenInfoX.symbol);
-                        console.log("Token B", tokenInfoY.name, tokenInfoY.symbol);
-                        console.log("poolAddress", poolAddress?.toBase58().toString());
 
                         const signature_link = `https://solscan.io/tx/${sig}`;
                         
@@ -273,6 +281,7 @@ export class SolanaService {
                 }
                 if(ix.programId.toBase58() === METEORA_DLMM_PROGRAM && dataHead === REMOVE_LIQUIDITY_BY_START) {
                     console.log("Remove liquidity index is-----------------------------------------", i)
+                    return
                 }
             }        
         });

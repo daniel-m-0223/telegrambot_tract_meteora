@@ -20,6 +20,9 @@ export class LiquidityMonitor {
     this.telegramService = telegramService;
     this.watchlistService = watchlistService;
     this.alertCooldownMinutes = alertCooldownMinutes;
+    
+    // Set the watchlist service in SolanaService for filtering
+    this.solanaService.setWatchlistService(watchlistService);
   }
 
   setTelegramService(telegramService: TelegramService): void {
